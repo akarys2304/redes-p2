@@ -1,4 +1,5 @@
 import asyncio
+import random
 from tcputils import *
 
 class Servidor:
@@ -51,7 +52,8 @@ class Conexao:
     def __init__(self, servidor, id_conexao, seq_no):
         self.servidor = servidor
         self.id_conexao = id_conexao
-        self.seq_no = seq_no + 1  # Seq no para a próxima mensagem que enviaremos
+        self.seq_no = random.randint(0, 0xffff)  # Seq no para a próxima mensagem que enviaremos
+        self.ack_no = seq_no + 1  # Número de ACK que estamos esperando receber
         self.callback = None
         self.timer = asyncio.get_event_loop().call_later(1, self._exemplo_timer)  # um timer pode ser criado assim; esta linha é só um exemplo e pode ser removida
         #self.timer.cancel()   # é possível cancelar o timer chamando esse método; esta linha é só um exemplo e pode ser removida
@@ -61,10 +63,23 @@ class Conexao:
         print('Este é um exemplo de como fazer um timer')
 
     def _rdt_rcv(self, seq_no, ack_no, flags, payload):
-        # TODO: trate aqui o recebimento de segmentos provenientes da camada de rede.
-        # Chame self.callback(self, dados) para passar dados para a camada de aplicação após
-        # garantir que eles não sejam duplicados e que tenham sido recebidos em ordem.
-        print('recebido payload: %r' % payload)
+        # Verificar se o segmento é duplicado ou está fora de ordem
+        if seq_no != self.ack_no:
+            # Se o segmento está fora de ordem, não o processamos
+            return
+
+        # Atualizar o número de confirmação esperado
+        self.ack_no = seq_no + len(payload)
+
+        # Enviar ACK de confirmação
+        src_port, dst_port = self.id_conexao[1], self.id_conexao[3]
+        header = make_header(dst_port, src_port, self.seq_no, self.ack_no, FLAGS_ACK)
+        src_addr, dst_addr = self.id_conexao[2], self.id_conexao[0]
+        self.servidor.rede.enviar(fix_checksum(header, src_addr, dst_addr), src_addr)
+
+        # Passar os dados para a camada de aplicação
+        if self.callback and payload:
+            self.callback(self, payload)
 
     # Os métodos abaixo fazem parte da API
 
