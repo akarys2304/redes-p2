@@ -94,9 +94,31 @@ class Conexao:
         """
         Usado pela camada de aplicação para enviar dados
         """
-        # TODO: implemente aqui o envio de dados.
-        # Chame self.servidor.rede.enviar(segmento, dest_addr) para enviar o segmento
-        # que você construir para a camada de rede.
+        
+
+        src_port, dst_port, seq_no, ack_no, \
+            flags, window_size, checksum, urg_ptr = read_header(dados)
+        payload = dados[4*(flags>>12):]
+        
+        if (flags & FLAGS_ACK== FLAGS_ACK):
+            return
+
+        total_data_length = len(dados)
+        bytes_sent = 0
+
+        src_port, dst_port = self.id_conexao[1], self.id_conexao[3]
+        src_addr, dst_addr = self.id_conexao[2], self.id_conexao[0]
+
+        while bytes_sent < total_data_length: #caso o dados seja maior que MSS
+            segment_size = min(MSS, total_data_length - bytes_sent)
+            segment_data = dados[bytes_sent:bytes_sent + segment_size]
+
+            header = make_header(dst_port, src_port, self.seq_no, self.ack_no, FLAGS_ACK)
+            self.servidor.rede.enviar(fix_checksum(header + segment_data, src_addr, dst_addr), src_addr)
+
+            self.seq_no += segment_size
+            bytes_sent += segment_size
+
         pass
 
     def fechar(self):
