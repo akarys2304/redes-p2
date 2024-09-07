@@ -64,7 +64,7 @@ class Conexao:
 
     def _rdt_rcv(self, seq_no, ack_no, flags, payload):
         # Verificar se o segmento é duplicado ou está fora de ordem
-        if seq_no != self.ack_no and len(payload) > 0:
+        if seq_no != self.ack_no and len(payload) != 0:
             # Se o segmento está fora de ordem, não o processamos
             return
 
@@ -72,10 +72,11 @@ class Conexao:
         self.ack_no = seq_no + len(payload)
 
         # Enviar ACK de confirmação
-        src_port, dst_port = self.id_conexao[1], self.id_conexao[3]
-        header = make_header(dst_port, src_port, self.seq_no, self.ack_no, FLAGS_ACK)
-        src_addr, dst_addr = self.id_conexao[2], self.id_conexao[0]
-        self.servidor.rede.enviar(fix_checksum(header, src_addr, dst_addr), src_addr)
+        if len(payload) > 0 or (flags & FLAGS_SYN) or (flags & FLAGS_FIN):
+            src_port, dst_port = self.id_conexao[1], self.id_conexao[3]
+            header = make_header(dst_port, src_port, self.seq_no, self.ack_no, FLAGS_ACK)
+            src_addr, dst_addr = self.id_conexao[2], self.id_conexao[0]
+            self.servidor.rede.enviar(fix_checksum(header, src_addr, dst_addr), src_addr)
 
         # Passar os dados para a camada de aplicação
         if self.callback and payload:
@@ -108,10 +109,10 @@ class Conexao:
             header = make_header(dst_port, src_port, self.seq_no + 1, self.ack_no, FLAGS_ACK)
             self.servidor.rede.enviar(fix_checksum(header + segment_data, src_addr, dst_addr), src_addr)
 
-            self.seq_no += segment_size
+            self.seq_no += segment_size  # Incrementar seq_no após o envio
             bytes_sent += segment_size
 
-        pass
+    pass
 
     def fechar(self):
         """
