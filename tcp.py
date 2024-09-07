@@ -64,7 +64,7 @@ class Conexao:
 
     def _rdt_rcv(self, seq_no, ack_no, flags, payload):
         # Verificar se o segmento é duplicado ou está fora de ordem
-        if seq_no != self.ack_no:
+        if seq_no != self.ack_no and len(payload) > 0:
             # Se o segmento está fora de ordem, não o processamos
             return
 
@@ -94,14 +94,6 @@ class Conexao:
         """
         Usado pela camada de aplicação para enviar dados
         """
-        
-
-        src_port, dst_port, seq_no, ack_no, \
-            flags, window_size, checksum, urg_ptr = read_header(dados)
-        payload = dados[4*(flags>>12):]
-        
-        if (flags & FLAGS_ACK== FLAGS_ACK):
-            return
 
         total_data_length = len(dados)
         bytes_sent = 0
@@ -113,7 +105,7 @@ class Conexao:
             segment_size = min(MSS, total_data_length - bytes_sent)
             segment_data = dados[bytes_sent:bytes_sent + segment_size]
 
-            header = make_header(dst_port, src_port, self.seq_no, self.ack_no, FLAGS_ACK)
+            header = make_header(dst_port, src_port, self.seq_no + 1, self.ack_no, FLAGS_ACK)
             self.servidor.rede.enviar(fix_checksum(header + segment_data, src_addr, dst_addr), src_addr)
 
             self.seq_no += segment_size
