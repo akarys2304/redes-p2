@@ -72,11 +72,19 @@ class Conexao:
         self.ack_no = seq_no + len(payload)
 
         # Enviar ACK de confirmação
-        if len(payload) > 0 or (flags & FLAGS_SYN) or (flags & FLAGS_FIN):
+        if len(payload) > 0 or (flags & FLAGS_SYN):
             src_port, dst_port = self.id_conexao[1], self.id_conexao[3]
             header = make_header(dst_port, src_port, self.seq_no, self.ack_no, FLAGS_ACK)
             src_addr, dst_addr = self.id_conexao[2], self.id_conexao[0]
             self.servidor.rede.enviar(fix_checksum(header, src_addr, dst_addr), src_addr)
+        
+        if flags & FLAGS_FIN:
+            src_port, dst_port = self.id_conexao[1], self.id_conexao[3]
+            header = make_header(dst_port, src_port, self.seq_no, self.ack_no + 1, FLAGS_ACK)
+            src_addr, dst_addr = self.id_conexao[2], self.id_conexao[0]
+            self.servidor.rede.enviar(fix_checksum(header, src_addr, dst_addr), src_addr)
+
+            self.callback(self, b'') #Finaliza na camada de app
 
         # Passar os dados para a camada de aplicação
         if self.callback and payload:
@@ -118,5 +126,9 @@ class Conexao:
         """
         Usado pela camada de aplicação para fechar a conexão
         """
-        # TODO: implemente aqui o fechamento de conexão
+        src_port, dst_port = self.id_conexao[1], self.id_conexao[3]
+        src_addr, dst_addr = self.id_conexao[2], self.id_conexao[0]
+        header = make_header(dst_port, src_port, self.seq_no + 1, self.ack_no, FLAGS_FIN)
+        self.servidor.rede.enviar(fix_checksum(header, src_addr, dst_addr), src_addr)
+        self.callback = None #Ta certo isso???
         pass
