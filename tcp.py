@@ -1,6 +1,7 @@
 import asyncio
 import random
 from tcputils import *
+import time
 
 class Servidor:
     def __init__(self, rede, porta):
@@ -55,22 +56,35 @@ class Conexao:
         self.seq_no = random.randint(0, 0xffff)  # Seq no para a próxima mensagem que enviaremos
         self.ack_no = seq_no + 1  # Número de ACK que estamos esperando receber
         self.callback = None
-        self.timer = asyncio.get_event_loop().call_later(1, self._exemplo_timer)  # um timer pode ser criado assim; esta linha é só um exemplo e pode ser removida
-        #self.timer = None
+        self.timer = None
+        self.timer_value = 1
         self.not_yet_acked = []
+        self.devRTT = 0
+        self.estimatedRTT = 0
 
     def _exemplo_timer(self):
         # Esta função é só um exemplo e pode ser removida
         if len(self.not_yet_acked) > 0 :
+            self.not_yet_acked[0][2] = 0
             self.servidor.rede.enviar(self.not_yet_acked[0][0], self.not_yet_acked[0][1])
-            self.timer = asyncio.get_event_loop().call_later(1, self._exemplo_timer)
+            self.timer = asyncio.get_event_loop().call_later(self.timer_value, self._exemplo_timer)
 
     def _rdt_rcv(self, seq_no, ack_no, flags, payload):
         if seq_no > self.ack_no - 1 and (flags & FLAGS_ACK == FLAGS_ACK) and len(self.not_yet_acked) > 0:
             if self.timer is not None:
                 self.timer.cancel()
+                if self.not_yet_acked[0][2] != 0:
+                    rtt = time.time() - self.not_yet_acked[0][2]
+                    if self.devRTT == 0 and self.estimatedRTT == 0:
+                        self.estimatedRTT = rtt
+                        self.devRTT = rtt/2
+                    else:
+                        self.estimatedRTT = (1 - 0.125) * self.estimatedRTT + 0.125 * rtt
+                        self.devRTT = (1 - 0.25) * self.devRTT + 0.25 * abs(rtt - self.estimatedRTT)
+                    self.timer_value = self.estimatedRTT + 4 * self.devRTT
                 self.not_yet_acked.pop(0)
-            self.timer = asyncio.get_event_loop().call_later(1, self.timer)
+            self.timer = asyncio.get_event_loop().call_later(self.timer_value, self.timer)
+
 
 
         # Verificar se o segmento é duplicado ou está fora de ordem
@@ -125,13 +139,13 @@ class Conexao:
             segment_data = dados[bytes_sent:bytes_sent + segment_size]
 
             header = make_header(dst_port, src_port, self.seq_no + 1, self.ack_no, FLAGS_ACK)
-            msg = [fix_checksum(header + segment_data, src_addr, dst_addr), src_addr]
+            msg = [fix_checksum(header + segment_data, src_addr, dst_addr), src_addr, time.time()]
             self.servidor.rede.enviar(msg[0], msg[1])
 
             self.seq_no += segment_size  # Incrementar seq_no após o envio
             bytes_sent += segment_size
             self.not_yet_acked.append(msg)
-            self.timer = asyncio.get_event_loop().call_later(1, self._exemplo_timer)
+            self.timer = asyncio.get_event_loop().call_later(self.timer_value, self._exemplo_timer)
 
 
     pass
