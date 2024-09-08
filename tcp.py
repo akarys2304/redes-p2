@@ -56,13 +56,23 @@ class Conexao:
         self.ack_no = seq_no + 1  # Número de ACK que estamos esperando receber
         self.callback = None
         self.timer = asyncio.get_event_loop().call_later(1, self._exemplo_timer)  # um timer pode ser criado assim; esta linha é só um exemplo e pode ser removida
-        #self.timer.cancel()   # é possível cancelar o timer chamando esse método; esta linha é só um exemplo e pode ser removida
+        #self.timer = None
+        self.not_yet_acked = []
 
     def _exemplo_timer(self):
         # Esta função é só um exemplo e pode ser removida
-        print('Este é um exemplo de como fazer um timer')
+        if len(self.not_yet_acked) > 0 :
+            self.servidor.rede.enviar(self.not_yet_acked[0][0], self.not_yet_acked[0][1])
+            self.timer = asyncio.get_event_loop().call_later(1, self._exemplo_timer)
 
     def _rdt_rcv(self, seq_no, ack_no, flags, payload):
+        if seq_no > self.ack_no - 1 and (flags & FLAGS_ACK == FLAGS_ACK) and len(self.not_yet_acked) > 0:
+            if self.timer is not None:
+                self.timer.cancel()
+                self.not_yet_acked.pop(0)
+            self.timer = asyncio.get_event_loop().call_later(1, self.timer)
+
+
         # Verificar se o segmento é duplicado ou está fora de ordem
         if seq_no != self.ack_no and len(payload) != 0:
             # Se o segmento está fora de ordem, não o processamos
@@ -115,10 +125,14 @@ class Conexao:
             segment_data = dados[bytes_sent:bytes_sent + segment_size]
 
             header = make_header(dst_port, src_port, self.seq_no + 1, self.ack_no, FLAGS_ACK)
-            self.servidor.rede.enviar(fix_checksum(header + segment_data, src_addr, dst_addr), src_addr)
+            msg = [fix_checksum(header + segment_data, src_addr, dst_addr), src_addr]
+            self.servidor.rede.enviar(msg[0], msg[1])
 
             self.seq_no += segment_size  # Incrementar seq_no após o envio
             bytes_sent += segment_size
+            self.not_yet_acked.append(msg)
+            self.timer = asyncio.get_event_loop().call_later(1, self._exemplo_timer)
+
 
     pass
 
@@ -126,6 +140,7 @@ class Conexao:
         """
         Usado pela camada de aplicação para fechar a conexão
         """
+
         src_port, dst_port = self.id_conexao[1], self.id_conexao[3]
         src_addr, dst_addr = self.id_conexao[2], self.id_conexao[0]
         header = make_header(dst_port, src_port, self.seq_no + 1, self.ack_no, FLAGS_FIN)
