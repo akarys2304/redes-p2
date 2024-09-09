@@ -61,6 +61,8 @@ class Conexao:
         self.not_yet_acked = []
         self.devRTT = 0
         self.estimatedRTT = 0
+        self.window = 1
+        self.to_be_sent = []
 
     def _exemplo_timer(self):
         # Esta função é só um exemplo e pode ser removida
@@ -74,6 +76,8 @@ class Conexao:
             if self.timer is not None:
                 self.timer.cancel()
                 if self.not_yet_acked[0][2] != 0:
+                    if self.not_yet_acked[0][3] == MSS:
+                        self.window += 1
                     rtt = time.time() - self.not_yet_acked[0][2]
                     if self.devRTT == 0 and self.estimatedRTT == 0:
                         self.estimatedRTT = rtt
@@ -83,6 +87,7 @@ class Conexao:
                         self.devRTT = (1 - 0.25) * self.devRTT + 0.25 * abs(rtt - self.estimatedRTT)
                     self.timer_value = self.estimatedRTT + 4 * self.devRTT
                 self.not_yet_acked.pop(0)
+                self.send()
             self.timer = asyncio.get_event_loop().call_later(self.timer_value, self.timer)
 
 
@@ -139,13 +144,14 @@ class Conexao:
             segment_data = dados[bytes_sent:bytes_sent + segment_size]
 
             header = make_header(dst_port, src_port, self.seq_no + 1, self.ack_no, FLAGS_ACK)
-            msg = [fix_checksum(header + segment_data, src_addr, dst_addr), src_addr, time.time()]
-            self.servidor.rede.enviar(msg[0], msg[1])
+            msg = [fix_checksum(header + segment_data, src_addr, dst_addr), src_addr, time.time(), segment_size]
 
             self.seq_no += segment_size  # Incrementar seq_no após o envio
             bytes_sent += segment_size
-            self.not_yet_acked.append(msg)
-            self.timer = asyncio.get_event_loop().call_later(self.timer_value, self._exemplo_timer)
+
+            self.to_be_sent.append(msg)
+        
+        self.send()
 
 
     pass
@@ -160,4 +166,15 @@ class Conexao:
         header = make_header(dst_port, src_port, self.seq_no + 1, self.ack_no, FLAGS_FIN)
         self.servidor.rede.enviar(fix_checksum(header, src_addr, dst_addr), src_addr)
         self.callback = None #Ta certo isso???
+        pass
+
+    def send(self):
+        for i in range(self.window - len(self.not_yet_acked)):
+            if len(self.to_be_sent) > 0:
+                msg = self.to_be_sent.pop(0)
+                self.not_yet_acked.append(msg)
+                self.servidor.rede.enviar(msg[0], msg[1])
+
+        if len(self.not_yet_acked) > 0:
+            self.timer = asyncio.get_event_loop().call_later(self.timer_value, self._exemplo_timer)
         pass
