@@ -1,5 +1,6 @@
 import asyncio
 import random
+import math
 from tcputils import *
 import time
 
@@ -63,13 +64,22 @@ class Conexao:
         self.estimatedRTT = 0
         self.window = 1
         self.to_be_sent = []
-
+    
     def _exemplo_timer(self):
         # Esta função é só um exemplo e pode ser removida
         if len(self.not_yet_acked) > 0 :
             self.not_yet_acked[0][2] = 0
+            self.window = math.ceil(self.window/2)
+            print("Retransmitindo...")
             self.servidor.rede.enviar(self.not_yet_acked[0][0], self.not_yet_acked[0][1])
-            self.timer = asyncio.get_event_loop().call_later(self.timer_value, self._exemplo_timer)
+            print("Indo pro if")
+            if self.timer is not None:
+                print("Está no not None")
+                self.timer.cancel()
+            else:
+                print("Entrou aqui")
+                self.timer = asyncio.get_event_loop().call_later(self.timer_value, self._exemplo_timer)
+            
 
     def _rdt_rcv(self, seq_no, ack_no, flags, payload):
         if seq_no > self.ack_no - 1 and (flags & FLAGS_ACK == FLAGS_ACK) and len(self.not_yet_acked) > 0:
@@ -83,14 +93,13 @@ class Conexao:
                         self.estimatedRTT = rtt
                         self.devRTT = rtt/2
                     else:
-                        self.estimatedRTT = (1 - 0.125) * self.estimatedRTT + 0.125 * rtt
+                        self.estimatedRTT = (1 - 0.125) * self.estimatedRTT + 0.125 * rtt #6
                         self.devRTT = (1 - 0.25) * self.devRTT + 0.25 * abs(rtt - self.estimatedRTT)
                     self.timer_value = self.estimatedRTT + 4 * self.devRTT
                 self.not_yet_acked.pop(0)
                 self.send()
+            print("Passou pelo _rdt_rcv")
             self.timer = asyncio.get_event_loop().call_later(self.timer_value, self.timer)
-
-
 
         # Verificar se o segmento é duplicado ou está fora de ordem
         if seq_no != self.ack_no and len(payload) != 0:
@@ -101,13 +110,13 @@ class Conexao:
         self.ack_no = seq_no + len(payload)
 
         # Enviar ACK de confirmação
-        if len(payload) > 0 or (flags & FLAGS_SYN):
+        if len(payload) > 0 or (flags & FLAGS_SYN): #1
             src_port, dst_port = self.id_conexao[1], self.id_conexao[3]
             header = make_header(dst_port, src_port, self.seq_no, self.ack_no, FLAGS_ACK)
             src_addr, dst_addr = self.id_conexao[2], self.id_conexao[0]
             self.servidor.rede.enviar(fix_checksum(header, src_addr, dst_addr), src_addr)
         
-        if flags & FLAGS_FIN:
+        if flags & FLAGS_FIN: #4
             src_port, dst_port = self.id_conexao[1], self.id_conexao[3]
             header = make_header(dst_port, src_port, self.seq_no, self.ack_no + 1, FLAGS_ACK)
             src_addr, dst_addr = self.id_conexao[2], self.id_conexao[0]
@@ -165,16 +174,17 @@ class Conexao:
         src_addr, dst_addr = self.id_conexao[2], self.id_conexao[0]
         header = make_header(dst_port, src_port, self.seq_no + 1, self.ack_no, FLAGS_FIN)
         self.servidor.rede.enviar(fix_checksum(header, src_addr, dst_addr), src_addr)
-        self.callback = None #Ta certo isso???
+        self.callback = None # Ta certo isso???
         pass
 
     def send(self):
-        for i in range(self.window - len(self.not_yet_acked)):
+        for i in range(self.window):
             if len(self.to_be_sent) > 0:
                 msg = self.to_be_sent.pop(0)
                 self.not_yet_acked.append(msg)
                 self.servidor.rede.enviar(msg[0], msg[1])
 
         if len(self.not_yet_acked) > 0:
+            print("No send")
             self.timer = asyncio.get_event_loop().call_later(self.timer_value, self._exemplo_timer)
         pass
